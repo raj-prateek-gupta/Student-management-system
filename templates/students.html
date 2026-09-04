@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Student Management System</title>
+
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', path='css/style.css') }}"
+    />
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>Student Management System</h1>
+
+      <a href="/add-student" class="add-button"> + Add New Student </a>
+
+      <h2>Student Records</h2>
+
+      <div class="students-container">
+        {% for student in students %}
+
+        <div class="student-card">
+          <h3>{{ student.first_name }} {{ student.last_name }}</h3>
+
+          <p>
+            <strong>ID:</strong>
+            {{ student.id }}
+          </p>
+
+          <p>
+            <strong>Age:</strong>
+            {{ student.age }}
+          </p>
+
+          <p>
+            <strong>Course:</strong>
+            {{ student.course }}
+          </p>
+
+          <p>
+            <a href="/students/{{ student.id }}/edit" class="add-button">
+              Edit
+            </a>
+          </p>
+
+          <form
+            action="/student/{{ student.id }}/delete"
+            method="post"
+            onsubmit="return confirmDelete('{{ student.first_name }}');"
+          >
+            <button type="submit" class="delete-btn">Delete</button>
+          </form>
+        </div>
+
+        {% endfor %}
+      </div>
+    </div>
+
+    <script src="{{ url_for('static', path='js/script.js') }}"></script>
+  </body>
+</html>
