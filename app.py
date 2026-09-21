@@ -1,10 +1,33 @@
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, Form, HTTPException, Depends
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from database import Base, engine
+import models
+from database import SessionLocal
+from sqlalchemy.orm import Session
+from fastapi import UploadFile, File
+from pathlib import Path
+import shutil
 
-from data import students
+Base.metadata.create_all(bind=engine)
 
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+# ==================================================
+# DATABASE DEPENDENCY
+# ==================================================
+
+def get_db():
+
+    db = SessionLocal()
+
+    try:
+        yield db
+
+    finally:
+        db.close()
 
 app = FastAPI(version="2.0")
 
@@ -34,7 +57,10 @@ app.mount(
 # ==================================================
 
 @app.get("/")
-def home(request: Request):
+def home(request: Request,
+         db: Session = Depends(get_db)):
+
+    students = db.query(models.Student).all()
 
     return templates.TemplateResponse(
         request=request,
@@ -68,29 +94,26 @@ def add_student(
     first_name: str = Form(...),
     last_name: str = Form(...),
     age: int = Form(...),
-    course: str = Form(...)
+    course: str = Form(...),
+    db: Session = Depends(get_db)
 ):
 
-    # Generate new ID
-    new_id = max(
-        [student["id"] for student in students],   
-        default=0
-    ) + 1
-
-
+   
     # Create new student
-    new_student = {
-        "id": new_id,
-        "first_name": first_name,
-        "last_name": last_name,
-        "age": age,
-        "course": course
-    }
+    new_student = models.Student(
+        first_name=first_name,
+        last_name=last_name,
+        age=age,
+        course=course,
+    )
 
 
     # Add student to list
-    students.append(new_student)
+    db.add(new_student)
 
+    db.commit()
+
+    db.refresh(new_student)
 
     # Redirect to students page
     return RedirectResponse(
@@ -98,63 +121,109 @@ def add_student(
         status_code=303
     )
 
+
+# ==================================================
+# EDIT STUDENT PAGE
+# ==================================================
+
 @app.get('/students/{student_id}/edit')
-def edit_student_page(request:Request, student_id:int):
+def edit_student_page(request:Request, 
+                      student_id:int,
+                      db: Session = Depends(get_db)):
 
-    for student in students:
-        if student["id"] == student_id:
-            return templates.TemplateResponse(request=request, name="edit_student.html", context={"student":student})
+    student = db.query(models.Student).filter(
+        models.Student.id == student_id).first()
 
-    raise HTTPException(
-        status_code=404,
-        detail="Student not found"
-    )
+    
+    if not student:
+        raise HTTPException(
+            status_code=404,
+            detail="Student not found"
+        )
+    
+    return templates.TemplateResponse(request=request,   
+                                    name="edit_student.html", 
+                                    context={"student":student})
+
+# ==================================================
+# UPDATE STUDENT
+# ==================================================
 
 @app.post("/students/{student_id}/update")
 def update_student(
     student_id: int,
-
     first_name: str = Form(...),
     last_name: str = Form(...),
     age: int = Form(...),
-    course: str = Form(...)
+    course: str = Form(...),
+    db: Session = Depends(get_db)
 ):
 
-    for student in students:
 
-        if student["id"] == student_id:
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
 
-            student["first_name"] = first_name
-            student["last_name"] = last_name
-            student["age"] = age
-            student["course"] = course
+    if not student:
+        raise HTTPException(
+            status_code=404,
+            detail="Student not found"
+        )
 
-            return RedirectResponse(
-                "/",
-                status_code=303
-            )
+    student.first_name = first_name
+    student.last_name=last_name
+    student.age=age
+    student.course=course
 
-    raise HTTPException(
-        status_code=404,
-        detail="Student not found"
+    db.commit()
+
+    return RedirectResponse(
+        "/",
+        status_code=303
     )
+
+# ==================================================
+# DELETE STUDENT
+# ==================================================
 
 @app.post("/student/{student_id}/delete")
-def delete_student(student_id:int):
+def delete_student(student_id:int,
+                   db: Session = Depends(get_db)):
 
-    for index,student in enumerate(students):
-        if student["id"] == student_id:
-            students.pop(index)                           # [s1, s2]
+    student = db.query(models.Student).filter(models.Student.id == student_id).first()
 
-            return RedirectResponse("/", status_code=303)
+    if not student:
 
-    
-    raise HTTPException(
-        status_code=404,
-        detail="Student not found"
+        raise HTTPException(
+            status_code=404,
+            detail="Student not found"
+        )
+
+    db.delete(student)
+
+    db.commit()
+
+    return RedirectResponse(
+        "/",
+        status_code=303
     )
 
-            
-            
-            
+@app.post("/upload")
+def upload_file(file: UploadFile = File(...)):
 
+    file_path = UPLOAD_DIR/file.filename
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file,buffer)
+
+        return{
+            "message":"File Uploaded Successfully",
+            "filename":file.filename
+        }
+
+
+@app.get("/upload")
+def upload_page(request:Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="upload.html",
+        context={}
+    )
